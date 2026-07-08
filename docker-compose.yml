@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ic_platform
+      POSTGRES_PASSWORD: ic_platform
+      POSTGRES_DB: ic_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ic_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./app:/srv/app/app
+      - ./alembic:/srv/app/alembic
+      - document_storage:/srv/app/data
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ic_platform:ic_platform@postgres:5432/ic_platform
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: local-dev-secret-do-not-use-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - ./app:/srv/app/app
+      - document_storage:/srv/app/data
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ic_platform:ic_platform@postgres:5432/ic_platform
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: local-dev-secret-do-not-use-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  document_storage:
