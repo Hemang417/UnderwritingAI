@@ -24,10 +24,22 @@ from app.core.db import Base, SessionLocal, engine, get_session  # noqa: E402
 from app.discovery.models import CanonicalProject, Developer, RankingConfig  # noqa: E402
 from app.identity.models import Permission, Role, role_permissions  # noqa: E402
 from app.main import app  # noqa: E402
+from app.scenario.models import ScenarioAssumptionSet, ScenarioType  # noqa: E402
 
 ROLE_PERMISSIONS = {
-    "analyst": ["report.create", "report.edit_draft", "report.submit_review", "datapoint.manual_override"],
-    "reviewer": ["report.approve_publish", "report.reject", "datapoint.review_override"],
+    "analyst": [
+        "report.create",
+        "report.edit_draft",
+        "report.submit_review",
+        "datapoint.manual_override",
+        "scenario.override",
+    ],
+    "reviewer": [
+        "report.approve_publish",
+        "report.reject",
+        "datapoint.review_override",
+        "scenario.review_override",
+    ],
     "admin": ["user.manage", "adapter.configure", "assumption.configure"],
 }
 
@@ -139,6 +151,39 @@ ANALYTICS_ASSUMPTION_SETS = [
     ),
 ]
 
+# Mirrors the Alembic seed migration for app.scenario.
+SCENARIO_ASSUMPTION_SETS = [
+    (
+        ScenarioType.BEAR,
+        "Bear Case",
+        {
+            "pricing_growth_delta_pct": -4.0,
+            "inflation_delta_pct": 1.5,
+            "sales_velocity_multiplier": 0.6,
+            "interest_rate_delta_pct": 2.5,
+            "construction_delay_risk_pts": 20.0,
+            "developer_execution_risk_pts": 15.0,
+            "demand_risk_pts": 15.0,
+            "supply_risk_pts": 10.0,
+        },
+    ),
+    (ScenarioType.BASE, "Base Case", {}),
+    (
+        ScenarioType.BULL,
+        "Bull Case",
+        {
+            "pricing_growth_delta_pct": 3.0,
+            "inflation_delta_pct": -0.5,
+            "sales_velocity_multiplier": 1.3,
+            "interest_rate_delta_pct": -1.0,
+            "construction_delay_risk_pts": -10.0,
+            "developer_execution_risk_pts": -10.0,
+            "demand_risk_pts": -10.0,
+            "supply_risk_pts": -5.0,
+        },
+    ),
+]
+
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _setup_database():
@@ -246,6 +291,17 @@ async def _setup_database():
                 session.add(
                     AnalyticsAssumptionSet(
                         engine_type=engine_type, version=1, parameters=parameters, is_active=True
+                    )
+                )
+
+            for scenario_type, name, adjustments in SCENARIO_ASSUMPTION_SETS:
+                session.add(
+                    ScenarioAssumptionSet(
+                        scenario_type=scenario_type,
+                        version=1,
+                        name=name,
+                        adjustments=adjustments,
+                        is_active=True,
                     )
                 )
 

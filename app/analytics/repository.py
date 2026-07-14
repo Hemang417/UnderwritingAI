@@ -17,6 +17,12 @@ async def get_active_assumption_set(
     return (await session.execute(stmt)).scalars().first()
 
 
+async def get_assumption_set_by_id(
+    session: AsyncSession, assumption_set_id: uuid.UUID
+) -> AnalyticsAssumptionSet | None:
+    return await session.get(AnalyticsAssumptionSet, assumption_set_id)
+
+
 async def create_forecast_run(session: AsyncSession, forecast_run: ForecastRun) -> ForecastRun:
     session.add(forecast_run)
     await session.flush()
