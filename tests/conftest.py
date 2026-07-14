@@ -23,6 +23,8 @@ from app.analytics.models import AnalyticsAssumptionSet, EngineType  # noqa: E40
 from app.core.db import Base, SessionLocal, engine, get_session  # noqa: E402
 from app.discovery.models import CanonicalProject, Developer, RankingConfig  # noqa: E402
 from app.identity.models import Permission, Role, role_permissions  # noqa: E402
+from app.llm.dependencies import get_llm_provider  # noqa: E402
+from app.llm.fixture_provider import FixtureLLMProvider  # noqa: E402
 from app.main import app  # noqa: E402
 from app.scenario.models import ScenarioAssumptionSet, ScenarioType  # noqa: E402
 
@@ -346,6 +348,10 @@ async def client(db_session: AsyncSession):
             await db_session.rollback()
 
     app.dependency_overrides[get_session] = _override_get_session
+    # Deterministic, offline, free -- never let the automated suite make a
+    # live LLM call. Individual reporting tests may override this further
+    # (e.g. to inject a corrupted section for the guardrail negative test).
+    app.dependency_overrides[get_llm_provider] = lambda: FixtureLLMProvider()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

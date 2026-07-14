@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     document_storage_dir: str = "./data/documents"
     tesseract_cmd: str | None = None  # override for the tesseract binary path (e.g. on Windows dev)
 
+    # Report Language Adapter (M7) -- only structured JSON is ever sent to
+    # this provider, never raw documents/PII (ADR-012).
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+
 
 @lru_cache
 def get_settings() -> Settings:

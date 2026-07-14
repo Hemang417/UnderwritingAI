@@ -104,6 +104,20 @@ async def create_conflict_log(session: AsyncSession, log: ConflictResolutionLog)
     await session.flush()
 
 
+async def list_conflict_logs_for_winner(
+    session: AsyncSession, winning_data_point_id: uuid.UUID
+) -> list[ConflictResolutionLog]:
+    stmt = select(ConflictResolutionLog).where(
+        ConflictResolutionLog.winning_data_point_id == winning_data_point_id
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def get_data_point_by_id(session: AsyncSession, data_point_id: uuid.UUID) -> DataPoint | None:
+    stmt = select(DataPoint).where(DataPoint.id == data_point_id).options(selectinload(DataPoint.source))
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def list_data_points_for_entity(
     session: AsyncSession, *, entity_type: str, entity_id: uuid.UUID
 ) -> list[DataPoint]:
