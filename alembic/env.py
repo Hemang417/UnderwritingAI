@@ -12,6 +12,7 @@ from app.core.db import Base
 # for autogenerate. New bounded contexts (acquisition, analytics, reporting,
 # ...) must add their import here as they're built in later milestones.
 import app.acquisition.models  # noqa: F401,E402
+import app.analytics.models  # noqa: F401,E402
 import app.core.models  # noqa: F401,E402
 import app.discovery.models  # noqa: F401,E402
 import app.identity.models  # noqa: F401,E402

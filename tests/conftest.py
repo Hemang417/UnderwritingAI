@@ -19,6 +19,7 @@ from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.acquisition.models import DataPointValueType, DataSource, FieldCatalog, SourceType  # noqa: E402
+from app.analytics.models import AnalyticsAssumptionSet, EngineType  # noqa: E402
 from app.core.db import Base, SessionLocal, engine, get_session  # noqa: E402
 from app.discovery.models import CanonicalProject, Developer, RankingConfig  # noqa: E402
 from app.identity.models import Permission, Role, role_permissions  # noqa: E402
@@ -85,6 +86,56 @@ ACQUISITION_FIELD_CATALOG = [
         ["developer_site", "rera"],
         30,
         False,
+    ),
+]
+
+# Mirrors the Alembic seed migration for app.analytics.
+_HORIZONS_YEARS = [1, 3, 5, 7, 10]
+ANALYTICS_ASSUMPTION_SETS = [
+    (
+        EngineType.PRICING,
+        {
+            "annual_appreciation_rate_pct": 8.0,
+            "annual_inflation_rate_pct": 5.5,
+            "developer_premium_pct": 0.0,
+            "infrastructure_impact_pct": 0.0,
+            "horizons_years": _HORIZONS_YEARS,
+        },
+    ),
+    (
+        EngineType.SALES_VELOCITY,
+        {
+            "monthly_absorption_rate_pct": 2.0,
+            "sell_through_threshold_pct": 5.0,
+            "horizons_years": _HORIZONS_YEARS,
+        },
+    ),
+    (
+        EngineType.FINANCIAL,
+        {"discount_rate_pct": 12.0, "average_unit_size_sqft": 650.0, "horizons_years": _HORIZONS_YEARS},
+    ),
+    (
+        EngineType.RISK,
+        {
+            "category_weights": {
+                "construction": 0.20,
+                "developer": 0.15,
+                "market": 0.15,
+                "demand": 0.15,
+                "execution": 0.10,
+                "pricing": 0.15,
+                "regulatory": 0.10,
+            },
+            "default_score_no_data": 50.0,
+            "status_risk_scores": {
+                "under_construction": 70.0,
+                "nearing_completion": 40.0,
+                "completed": 10.0,
+            },
+            "stale_pricing_penalty": 20.0,
+            "low_confidence_pricing_threshold": 70.0,
+            "low_confidence_pricing_penalty": 15.0,
+        },
     ),
 ]
 
@@ -188,6 +239,13 @@ async def _setup_database():
                         source_priority=priority,
                         staleness_threshold_days=staleness,
                         requires_override_review=requires_review,
+                    )
+                )
+
+            for engine_type, parameters in ANALYTICS_ASSUMPTION_SETS:
+                session.add(
+                    AnalyticsAssumptionSet(
+                        engine_type=engine_type, version=1, parameters=parameters, is_active=True
                     )
                 )
 
