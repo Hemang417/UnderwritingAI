@@ -22,6 +22,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "Pillow>=10.3",
     "groq>=0.11",
+    "fpdf2>=2.8",
 ]
 
 [project.optional-dependencies]

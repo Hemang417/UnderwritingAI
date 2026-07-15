@@ -196,6 +196,35 @@ async def _setup_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        # Base.metadata.create_all only knows about Table/Column defs, not
+        # the raw-SQL DB-level publish-immutability trigger (ADR-010) that
+        # Alembic's migration creates -- mirror it here so a bare `pytest`
+        # run (schema via create_all, not `alembic upgrade head`) still
+        # gets the real trigger, not just the app-layer check.
+        await conn.execute(
+            text(
+                """
+                CREATE OR REPLACE FUNCTION prevent_published_report_version_update()
+                RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION
+                        'report_versions row % is published and immutable', OLD.id;
+                END;
+                $$ LANGUAGE plpgsql
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TRIGGER trg_report_versions_immutable
+                BEFORE UPDATE ON report_versions
+                FOR EACH ROW
+                WHEN (OLD.status = 'PUBLISHED')
+                EXECUTE FUNCTION prevent_published_report_version_update()
+                """
+            )
+        )
 
     async with SessionLocal() as session:
         # Idempotent: if Alembic migrations already seeded roles/permissions

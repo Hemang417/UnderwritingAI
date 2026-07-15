@@ -12,6 +12,10 @@ async def get_report_by_project_id(session: AsyncSession, canonical_project_id: 
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def get_report_by_id(session: AsyncSession, report_id: uuid.UUID) -> Report | None:
+    return await session.get(Report, report_id)
+
+
 async def create_report(session: AsyncSession, report: Report) -> Report:
     session.add(report)
     await session.flush()
@@ -59,3 +63,7 @@ async def get_report_version_by_id(session: AsyncSession, version_id: uuid.UUID)
         .options(selectinload(ReportVersion.sections))
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_report_section_by_id(session: AsyncSession, section_id: uuid.UUID) -> ReportSection | None:
+    return await session.get(ReportSection, section_id)
