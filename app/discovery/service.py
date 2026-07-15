@@ -4,11 +4,25 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adapters.base import AdapterPermanentError, AdapterTransientError
+from app.adapters.maha_rera import LiveMahaRERAAdapter
 from app.discovery import repository
 from app.discovery.models import CandidateMatch, CanonicalProject
 from app.discovery.scoring import CompositeRanker, ScoredCandidate, SearchInput, normalize_text
 
 MAX_CANDIDATES_SHOWN = 5
+
+# Best-effort mapping from MAHARERA's own status vocabulary to this
+# platform's (under_construction/nearing_completion/completed -- the same
+# values FieldCatalog's RISK_PARAMS.status_risk_scores keys off). MAHARERA's
+# exact live strings are unconfirmed until tested against real data; falls
+# back to "under_construction" (the most conservative -- highest risk
+# weight) for anything unrecognized, logged rather than silently guessed.
+_STATUS_MAP = {
+    "new project": "under_construction",
+    "ongoing project": "under_construction",
+    "project completed": "completed",
+}
 
 
 class RankingConfigMissingError(Exception):
@@ -27,6 +41,19 @@ class NotACandidateError(Exception):
 
 class ConfirmedMappingNotFoundError(Exception):
     pass
+
+
+class LiveResolveInputError(Exception):
+    """Neither project_name nor rera_number was given."""
+
+
+class LiveResolveNotFoundError(Exception):
+    """MAHARERA's search returned no matching project."""
+
+
+class LiveResolveSourceError(Exception):
+    """The live MAHARERA adapter failed (auth, network, or the site
+    itself) -- distinct from "not found," which is a normal outcome."""
 
 
 @dataclass
@@ -167,3 +194,67 @@ async def reuse_mapping(
     await session.commit()
     project = await repository.get_project_by_id(session, mapping.canonical_project_id)
     return project, mapping.id
+
+
+async def resolve_via_live_maharera(
+    session: AsyncSession, *, project_name: str | None, rera_number: str | None
+) -> CanonicalProject:
+    """The actual "add a project not already in the database" pathway:
+    looks the project up live on MAHARERA's own public API and creates a
+    new CanonicalProject from what it finds. Only reachable through an
+    explicit endpoint (never a silent fallback inside normal /search) since
+    it's slow, depends on a human-obtained JWT, and hits a live external
+    system -- see app/adapters/maha_rera_live.py.
+
+    If the resolved RERA number already exists locally, returns the
+    existing project rather than creating a duplicate.
+    """
+    if not project_name and not rera_number:
+        raise LiveResolveInputError("Provide a project_name or rera_number")
+
+    adapter = LiveMahaRERAAdapter()
+    criteria = {}
+    if project_name:
+        criteria["project_name"] = project_name
+    if rera_number:
+        criteria["rera_number"] = rera_number
+
+    try:
+        stubs = await adapter.search_project(criteria)
+    except (AdapterPermanentError, AdapterTransientError) as exc:
+        raise LiveResolveSourceError(str(exc)) from exc
+
+    if not stubs:
+        raise LiveResolveNotFoundError(project_name or rera_number)
+
+    stub = stubs[0]  # best-effort: take MAHARERA's top match
+
+    existing = await repository.get_project_by_rera_number(session, stub["registration_number"])
+    if existing is not None:
+        return existing
+
+    try:
+        identity = await adapter.fetch_identity_by_project_id(stub["project_id"])
+    except (AdapterPermanentError, AdapterTransientError) as exc:
+        raise LiveResolveSourceError(str(exc)) from exc
+
+    developer_name = identity.get("developer_name") or stub["developer_name"] or "Unknown Developer"
+    developer = await repository.get_or_create_developer(session, developer_name)
+
+    status_name = (identity.get("status_name") or "").strip().lower()
+    status = _STATUS_MAP.get(status_name, "under_construction")
+
+    project = await repository.create_project(
+        session,
+        CanonicalProject(
+            developer_id=developer.id,
+            state="Maharashtra",  # MAHARERA is Maharashtra-only, matching this platform's MVP scope
+            rera_registration_number=identity.get("registration_number") or stub["registration_number"],
+            project_name=identity.get("project_name") or stub["project_name"],
+            locality=identity.get("taluka") or identity.get("village") or identity.get("district") or "",
+            city=identity.get("district") or stub["district"] or "",
+            status=status,
+        ),
+    )
+    await session.commit()
+    return project

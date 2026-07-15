@@ -9,6 +9,7 @@ from app.discovery.models import (
     CandidateMatch,
     CanonicalProject,
     ConfirmedMapping,
+    Developer,
     RankingConfig,
     SearchQuery,
 )
@@ -58,6 +59,36 @@ async def get_project_by_id(session: AsyncSession, project_id: uuid.UUID) -> Can
         .options(selectinload(CanonicalProject.developer))
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_project_by_rera_number(
+    session: AsyncSession, rera_registration_number: str
+) -> CanonicalProject | None:
+    stmt = (
+        select(CanonicalProject)
+        .where(CanonicalProject.rera_registration_number == rera_registration_number)
+        .options(selectinload(CanonicalProject.developer))
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_or_create_developer(session: AsyncSession, name: str) -> Developer:
+    normalized = name.strip()
+    stmt = select(Developer).where(Developer.name == normalized)
+    existing = (await session.execute(stmt)).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    developer = Developer(name=normalized)
+    session.add(developer)
+    await session.flush()
+    return developer
+
+
+async def create_project(session: AsyncSession, project: CanonicalProject) -> CanonicalProject:
+    session.add(project)
+    await session.flush()
+    await session.refresh(project, attribute_names=["developer"])
+    return project
 
 
 async def get_historical_hit_counts(session: AsyncSession) -> dict[uuid.UUID, int]:

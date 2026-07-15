@@ -47,3 +47,8 @@ class SearchResponse(BaseModel):
 class ConfirmResponse(BaseModel):
     project: ProjectOut
     mapping_id: uuid.UUID
+
+
+class LiveResolveRequest(BaseModel):
+    project_name: str | None = Field(default=None, max_length=255)
+    rera_number: str | None = Field(default=None, max_length=100)

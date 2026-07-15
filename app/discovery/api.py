@@ -11,6 +11,7 @@ from app.discovery.schemas import (
     CandidateOut,
     ConfirmRequest,
     ConfirmResponse,
+    LiveResolveRequest,
     ProjectOut,
     SearchRequest,
     SearchResponse,
@@ -103,6 +104,34 @@ async def reuse_previous_mapping(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Confirmed mapping not found") from exc
 
     return ConfirmResponse(project=_project_out(project), mapping_id=mapping_id)
+
+
+@router.post("/search/live-maharera", response_model=ProjectOut)
+async def search_live_maharera(
+    body: LiveResolveRequest,
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> ProjectOut:
+    """Looks a project up live on MAHARERA's own public API and creates a
+    new CanonicalProject from what's found -- the actual "add a project
+    not already in the database" capability. Slow (a live external call)
+    and depends on a human-obtained JWT being configured; never triggered
+    implicitly by the normal /search endpoint.
+    """
+    try:
+        project = await service.resolve_via_live_maharera(
+            session, project_name=body.project_name, rera_number=body.rera_number
+        )
+    except service.LiveResolveInputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except service.LiveResolveNotFoundError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"No matching project found on MAHARERA for '{exc}'"
+        ) from exc
+    except service.LiveResolveSourceError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return _project_out(project)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
