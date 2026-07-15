@@ -44,7 +44,7 @@ class ConfirmedMappingNotFoundError(Exception):
 
 
 class LiveResolveInputError(Exception):
-    """Neither project_name nor rera_number was given."""
+    """No project_name was given."""
 
 
 class LiveResolveNotFoundError(Exception):
@@ -196,9 +196,7 @@ async def reuse_mapping(
     return project, mapping.id
 
 
-async def resolve_via_live_maharera(
-    session: AsyncSession, *, project_name: str | None, rera_number: str | None
-) -> CanonicalProject:
+async def resolve_via_live_maharera(session: AsyncSession, *, project_name: str) -> CanonicalProject:
     """The actual "add a project not already in the database" pathway:
     looks the project up live on MAHARERA's own public API and creates a
     new CanonicalProject from what it finds. Only reachable through an
@@ -206,26 +204,27 @@ async def resolve_via_live_maharera(
     it's slow, depends on a human-obtained JWT, and hits a live external
     system -- see app/adapters/maha_rera_live.py.
 
+    Search is by project_name only -- MAHARERA's live search has no
+    reliable way to look up a project by RERA registration number alone
+    (confirmed in practice, not just in theory: a bounded scan of the
+    unfiltered project list essentially never reaches an arbitrary
+    project), so that path isn't offered here.
+
     If the resolved RERA number already exists locally, returns the
     existing project rather than creating a duplicate.
     """
-    if not project_name and not rera_number:
-        raise LiveResolveInputError("Provide a project_name or rera_number")
+    project_name = (project_name or "").strip()
+    if not project_name:
+        raise LiveResolveInputError("Provide a project_name")
 
     adapter = LiveMahaRERAAdapter()
-    criteria = {}
-    if project_name:
-        criteria["project_name"] = project_name
-    if rera_number:
-        criteria["rera_number"] = rera_number
-
     try:
-        stubs = await adapter.search_project(criteria)
+        stubs = await adapter.search_project({"project_name": project_name})
     except (AdapterPermanentError, AdapterTransientError) as exc:
         raise LiveResolveSourceError(str(exc)) from exc
 
     if not stubs:
-        raise LiveResolveNotFoundError(project_name or rera_number)
+        raise LiveResolveNotFoundError(project_name)
 
     stub = stubs[0]  # best-effort: take MAHARERA's top match
 
@@ -254,6 +253,7 @@ async def resolve_via_live_maharera(
             locality=identity.get("taluka") or identity.get("village") or identity.get("district") or "",
             city=identity.get("district") or stub["district"] or "",
             status=status,
+            maharera_project_id=stub["project_id"],
         ),
     )
     await session.commit()

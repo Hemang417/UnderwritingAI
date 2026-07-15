@@ -33,9 +33,18 @@ def _resolve_external_ref(data_source: DataSource, project: CanonicalProject) ->
     """Each source keys its records differently -- RERA by registration
     number, a developer's own site by project name. New adapters add a
     branch here, not a change to the orchestrator or normalization layer.
+
+    "maha_rera" (fixture) and "maha_rera_live" (real network calls) are
+    mutually exclusive per project, gated on maharera_project_id: it's
+    only ever set on projects created via the live MAHARERA discovery path
+    (resolve_via_live_maharera), so seeded/fixture-backed projects never
+    hit the live source, and live-resolved projects never bother with the
+    fixture one (their RERA number was never in its hardcoded dict anyway).
     """
     if data_source.adapter_key == "maha_rera":
-        return project.rera_registration_number
+        return project.rera_registration_number if project.maharera_project_id is None else None
+    if data_source.adapter_key == "maha_rera_live":
+        return project.maharera_project_id
     if data_source.adapter_key == "developer_site":
         return normalize_text(project.project_name)
     return None

@@ -15,13 +15,6 @@ MAHA_RERA_FIXTURES: dict[str, dict] = {
     "P52100005678": {"unit_count": 210, "possession_date": "2026-06-30"},  # Godrej Park Avenue
 }
 
-# Pages to scan (unfiltered) when a caller has only a RERA registration
-# number and no project name -- MAHARERA's search only filters server-side
-# by project name, so a name-less lookup falls back to a bounded scan.
-# Small on purpose: this is a best-effort fallback, not a guarantee.
-_REGISTRATION_NUMBER_FALLBACK_SCAN_PAGES = 10
-
-
 @register_adapter("maha_rera")
 class MahaRERAAdapter(BaseSourceAdapter):
     source_type = "rera"
@@ -60,32 +53,15 @@ class LiveMahaRERAAdapter(BaseSourceAdapter):
         self.client = client or maha_rera_live.MahaRERALiveClient()
 
     async def search_project(self, criteria: dict) -> list[dict]:
-        """criteria: {"project_name": str} and/or {"rera_number": str}.
-        MAHARERA's search only filters server-side by project name; when a
-        rera_number is given, results are additionally filtered
-        client-side for an exact registration-number match. A rera_number
-        given *without* a project_name falls back to scanning a bounded
-        number of unfiltered pages (see _REGISTRATION_NUMBER_FALLBACK_SCAN_PAGES) --
-        best-effort, not a guarantee for an old/obscure project.
+        """criteria: {"project_name": str}. MAHARERA's live search only
+        filters server-side by project name -- there's no reliable way to
+        search by RERA registration number alone (confirmed in practice: a
+        bounded scan of the unfiltered project list essentially never
+        reaches an arbitrary project), so registration-number search isn't
+        offered here.
         """
         project_name = (criteria.get("project_name") or "").strip()
-        rera_number = criteria.get("rera_number")
-        target = rera_number.strip().upper() if rera_number else None
-
-        stubs = await self._search_pages(project_name)
-        if target:
-            matches = [s for s in stubs if s["registration_number"].strip().upper() == target]
-            if matches or project_name:
-                return matches
-            # No name given and no match yet -- fall back to scanning more
-            # pages of the unfiltered list.
-            for page in range(2, _REGISTRATION_NUMBER_FALLBACK_SCAN_PAGES + 1):
-                page_stubs = await self._search_pages("", page=page)
-                matches = [s for s in page_stubs if s["registration_number"].strip().upper() == target]
-                if matches:
-                    return matches
-            return []
-        return stubs
+        return await self._search_pages(project_name)
 
     async def _search_pages(self, project_name: str, *, page: int = 1) -> list[dict]:
         try:
@@ -96,20 +72,14 @@ class LiveMahaRERAAdapter(BaseSourceAdapter):
             raise AdapterTransientError(str(exc)) from exc
 
     async def get_project(self, external_ref: str) -> dict:
-        """external_ref = RERA registration number (matches the fixture
-        adapter's convention). Best-effort resolution via search_project --
-        for a fresh, already-known project_id, prefer calling
-        fetch_detail_by_project_id directly (as resolve_via_live_maharera
-        does right after discovering it) instead of re-searching.
+        """external_ref = MAHARERA's own internal project_id (NOT the RERA
+        registration number -- that's the fixture adapter's convention,
+        not this one's). Captured once at discovery time in
+        CanonicalProject.maharera_project_id (see resolve_via_live_maharera)
+        and supplied here by the acquisition service on every subsequent
+        run, so this never needs to re-search by name.
         """
-        stubs = await self.search_project({"project_name": external_ref, "rera_number": external_ref})
-        if not stubs:
-            raise AdapterPermanentError(
-                f"Could not resolve a MAHARERA project_id for registration number '{external_ref}' -- "
-                "MAHARERA's search doesn't filter by registration number directly, and a name-based "
-                "guess found no match. Re-discover this project via POST /search/live-maharera."
-            )
-        return await self.fetch_detail_by_project_id(stubs[0]["project_id"])
+        return await self.fetch_detail_by_project_id(external_ref)
 
     async def fetch_detail_by_project_id(self, project_id: str) -> dict:
         """Fetches Tier 2 detail for an already-known MAHARERA project_id.

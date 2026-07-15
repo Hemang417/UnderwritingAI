@@ -50,6 +50,14 @@ class CanonicalProject(Base):
     locality: Mapped[str] = mapped_column(String(255))
     city: Mapped[str] = mapped_column(String(100), index=True)
     status: Mapped[str] = mapped_column(String(50))
+    # Set only for projects created via the live MAHARERA discovery path
+    # (see resolve_via_live_maharera) -- MAHARERA's own internal project
+    # id, distinct from rera_registration_number. Lets acquisition fetch
+    # this project's detail directly (fetch_detail_by_project_id) instead
+    # of re-searching by name, and is how acquisition knows to route this
+    # project to the live adapter instead of the fixture one (see
+    # app/acquisition/service.py's _resolve_external_ref).
+    maharera_project_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     developer: Mapped["Developer"] = relationship()

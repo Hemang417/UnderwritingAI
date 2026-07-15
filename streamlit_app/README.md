@@ -60,9 +60,9 @@ walkthrough switches accounts in Tab 6 to show the two-person control working.
 ## Live MAHARERA lookup (Tab 1, "Search live on MAHARERA")
 
 Adds a project that isn't in the seeded database yet, by looking it up live
-on MAHARERA's own public API (name or RERA registration number). This is
-separate from the fixture-backed data that powers the rest of the demo, and
-has a real operational dependency:
+on MAHARERA's own public API by **project name**. This is separate from the
+fixture-backed data that powers the rest of the demo, and has a real
+operational dependency:
 
 - **Requires a session token a human obtained by solving a CAPTCHA.**
   There is no automated way to get one, by design. From the project root,
@@ -82,15 +82,33 @@ has a real operational dependency:
   502 and a message to refresh it -- just re-run
   `python scripts/setup_maharera_session.py`. Existing projects
   (fixture-backed, like Lodha Park) are completely unaffected either way.
-- **Only `possession_date` is populated from MAHARERA.** MAHARERA's public
-  API doesn't expose unit count at all (confirmed by inspecting every
-  available endpoint), and never has pricing -- that's always been the
-  Developer Website adapter's job, not MAHARERA's.
-- Search by project name is reliable (MAHARERA's search filters
-  server-side by name). Search by RERA number *alone*, with no name, is
-  best-effort -- MAHARERA's search doesn't filter by registration number
-  directly, so it falls back to scanning a bounded number of unfiltered
-  result pages and may not find an old/obscure project.
+- **Search is by project name only.** MAHARERA's live search has no
+  reliable way to look up a project by RERA registration number alone --
+  its search filters server-side by name, and a bounded scan of the
+  unfiltered project list essentially never lands on an arbitrary project
+  (confirmed in practice, not just in theory). So registration-number
+  search isn't offered here; if a project's exact name isn't known, look
+  it up on MAHARERA's own site first.
+- **What gets saved, and what doesn't.** A successful lookup permanently
+  creates a new `CanonicalProject` row (name, developer, city, locality,
+  status, RERA registration number, plus MAHARERA's own internal
+  `project_id`) -- a real database record from that point on. It does
+  *not* pull `possession_date` into the versioned acquisition system as
+  part of this step -- that requires running **Acquire Data** (Tab 2)
+  afterward, which correctly routes a live-resolved project to the real
+  live adapter (not the fixture one -- seeded demo projects are
+  unaffected either way, they keep using the fixture).
+- **`unit_count` and pricing will still be missing.** MAHARERA's own API
+  simply doesn't expose either field (confirmed by inspecting every
+  available endpoint), and there's no live "developer website" adapter --
+  that source stays fixture-only. So Acquire Data alone won't fully
+  complete a live-resolved project; **Generate Report** will hard-block
+  with a 409 until `unit_count` and `current_price_per_sqft` are filled
+  in some other way. Use the **Manual Override** section in Tab 2 for
+  this -- it's a first-class, audited `DataPoint` (not a hack), takes
+  effect immediately, and `unit_count` additionally requires a Reviewer's
+  sign-off afterward (switch accounts and paste in the override ID shown
+  after submitting).
 
 ## Notes
 

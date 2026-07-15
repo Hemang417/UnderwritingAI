@@ -162,22 +162,16 @@ with tab1:
             "Looks the project up on MAHARERA's own public API and creates a new project record from "
             "real registry data -- name, developer, location, possession date. Requires a live session "
             "token (a human must have solved MAHARERA's CAPTCHA recently -- see streamlit_app/README.md) "
-            "and can take several seconds."
+            "and can take several seconds. Search is by project name only -- MAHARERA's live search has "
+            "no reliable way to look up a project by RERA registration number alone."
         )
-        live_col1, live_col2 = st.columns(2)
-        live_name = live_col1.text_input("Project name", key="live_name")
-        live_rera = live_col2.text_input("RERA registration number", key="live_rera")
+        live_name = st.text_input("Project name", key="live_name")
         if st.button("\U0001F310 Search live on MAHARERA", key="live_search_btn"):
-            if not live_name and not live_rera:
-                st.warning("Enter a project name or a RERA registration number.")
+            if not live_name:
+                st.warning("Enter a project name.")
             else:
-                body = {}
-                if live_name:
-                    body["project_name"] = live_name
-                if live_rera:
-                    body["rera_number"] = live_rera
                 with st.spinner("Querying MAHARERA's live API..."):
-                    live_resp = api("POST", "/search/live-maharera", json=body)
+                    live_resp = api("POST", "/search/live-maharera", json={"project_name": live_name})
                 if live_resp.status_code == 200:
                     project = live_resp.json()
                     st.session_state.project = project
@@ -259,6 +253,85 @@ with tab2:
                             continue
                         seen.add(key)
                         st.write(f"- `{d['field_name']}`: **{d['value']}** from {d['source_name']} (rejected)")
+
+        st.divider()
+        with st.expander("✏️ Manual Override (fill in a field no source could supply)"):
+            st.caption(
+                "Takes effect immediately, with a full audit trail (who, when, why). "
+                "`unit_count` and `possession_date` additionally require a Reviewer's "
+                "sign-off afterward (switch accounts below to record it); "
+                "`current_price_per_sqft` doesn't. Common use case: a project resolved "
+                "live from MAHARERA has no unit_count or pricing at all -- MAHARERA's "
+                "API doesn't expose either -- so Forecast/Report generation need this "
+                "filled in some other way."
+            )
+            oc1, oc2 = st.columns(2)
+            override_field = oc1.selectbox(
+                "Field", ["unit_count", "current_price_per_sqft", "possession_date"], key="override_field"
+            )
+            if override_field == "possession_date":
+                override_value = oc2.date_input("Value", key="override_value_date")
+            else:
+                override_value = oc2.number_input("Value", key="override_value_num", step=1.0, format="%.2f")
+            override_reason = st.text_input(
+                "Reason (required -- kept in the audit trail)", key="override_reason"
+            )
+            if st.button("Submit override"):
+                if not override_reason:
+                    st.warning("A reason is required.")
+                else:
+                    value = (
+                        override_value.isoformat()
+                        if override_field == "possession_date"
+                        else override_value
+                    )
+                    override_resp = api(
+                        "POST",
+                        f"/projects/{project_id}/data-points/{override_field}/override",
+                        json={"value": value, "reason": override_reason},
+                    )
+                    if override_resp.status_code == 200:
+                        data = override_resp.json()
+                        if data["requires_review"]:
+                            st.success(
+                                f"Override applied immediately. Also requires a Reviewer's "
+                                f"sign-off -- override ID: `{data['override_id']}`"
+                            )
+                        else:
+                            st.success("Override applied immediately.")
+                    else:
+                        st.error(override_resp.text)
+
+            st.write("**Reviewer sign-off** (for overrides on `unit_count`/`possession_date`)")
+            rc1, rc2, rc3 = st.columns([2, 2, 1])
+            review_id = rc1.text_input(
+                "Override ID", key="review_override_id", label_visibility="collapsed",
+                placeholder="Override ID",
+            )
+            review_notes = rc2.text_input(
+                "Notes", key="review_notes", label_visibility="collapsed", placeholder="Notes (optional)"
+            )
+            with rc3:
+                approve_clicked = st.button("✅ Approve", key="approve_override")
+                reject_clicked = st.button("❌ Reject", key="reject_override")
+            if approve_clicked or reject_clicked:
+                if not review_id:
+                    st.warning("Enter the override ID to review.")
+                else:
+                    review_resp = api(
+                        "POST",
+                        f"/data-point-overrides/{review_id}/review",
+                        json={"approved": approve_clicked, "notes": review_notes or None},
+                    )
+                    if review_resp.status_code == 200:
+                        if approve_clicked:
+                            st.success("Recorded.")
+                        else:
+                            st.success(
+                                "Rejection recorded (value not reverted -- submit a corrected override)."
+                            )
+                    else:
+                        st.error(review_resp.text)
 
 # ---- 3. Forecast ----------------------------------------------------------
 with tab3:

@@ -50,5 +50,4 @@ class ConfirmResponse(BaseModel):
 
 
 class LiveResolveRequest(BaseModel):
-    project_name: str | None = Field(default=None, max_length=255)
-    rera_number: str | None = Field(default=None, max_length=100)
+    project_name: str = Field(min_length=1, max_length=255)

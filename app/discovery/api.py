@@ -119,9 +119,7 @@ async def search_live_maharera(
     implicitly by the normal /search endpoint.
     """
     try:
-        project = await service.resolve_via_live_maharera(
-            session, project_name=body.project_name, rera_number=body.rera_number
-        )
+        project = await service.resolve_via_live_maharera(session, project_name=body.project_name)
     except service.LiveResolveInputError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except service.LiveResolveNotFoundError as exc:
